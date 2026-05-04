@@ -3,14 +3,14 @@
 
 const DEFAULT = { lat: 55.6050, lon: 13.0038, name: 'Malmö' };
 
-let map, radarLayer, weatherCharts = {};
+let map, radarLayer, weatherCharts = {}, overlayCanvases = {};
 
-function drawMidnightLines(chart, midnightIndices){
+function drawMidnightLines(chart, midnightIndices, chartName){
   if(!midnightIndices || midnightIndices.length === 0) return;
-  console.log('drawMidnightLines called with indices:', midnightIndices);
+  console.log(`drawMidnightLines for ${chartName}:`, midnightIndices);
   
-  const canvas = chart.canvas;
-  const ctx = canvas.getContext('2d');
+  const mainCanvas = chart.canvas;
+  const mainCtx = mainCanvas.getContext('2d');
   const xScale = chart.scales.x;
   const yScale = chart.scales.y;
   
@@ -19,21 +19,26 @@ function drawMidnightLines(chart, midnightIndices){
     return;
   }
   
-  ctx.save();
-  ctx.strokeStyle = '#FF0000';
-  ctx.lineWidth = 3;
-  ctx.globalAlpha = 0.8;
+  console.log(`${chartName} chartArea:`, chart.chartArea);
+  console.log(`${chartName} canvas size:`, mainCanvas.width, 'x', mainCanvas.height);
+  
+  // Use the main canvas directly and draw on top
+  mainCtx.save();
+  mainCtx.strokeStyle = '#FF0000';
+  mainCtx.lineWidth = 3;
+  mainCtx.globalAlpha = 1.0;
+  mainCtx.globalCompositeOperation = 'source-over';
   
   midnightIndices.forEach(idx => {
     const xPos = xScale.getPixelForValue(idx);
-    console.log('Drawing line at index', idx, 'xPos:', xPos);
-    ctx.beginPath();
-    ctx.moveTo(xPos, chart.chartArea.top);
-    ctx.lineTo(xPos, chart.chartArea.bottom);
-    ctx.stroke();
+    console.log(`${chartName}: index ${idx} -> xPos: ${xPos}`);
+    mainCtx.beginPath();
+    mainCtx.moveTo(xPos, chart.chartArea.top);
+    mainCtx.lineTo(xPos, chart.chartArea.bottom);
+    mainCtx.stroke();
   });
   
-  ctx.restore();
+  mainCtx.restore();
 }
 
 // Chart.js plugin for vertical lines at midnight
@@ -308,7 +313,8 @@ function renderTemperatureChart(labels, temps, midnightIndices){
     options:{
       interaction:{mode:'index',intersect:false},
       plugins:{
-        legend:{display:false}
+        legend:{display:false},
+        verticalMidnightLines:{ indices: midnightIndices || [] }
       },
       scales:{
         x:{position:'top',grid:{display:false},ticks:{maxRotation:0,minRotation:0,autoSkip:false}},
@@ -318,7 +324,7 @@ function renderTemperatureChart(labels, temps, midnightIndices){
       maintainAspectRatio:false
     }
   });
-  setTimeout(() => drawMidnightLines(weatherCharts.temp, midnightIndices), 50);
+  setTimeout(() => drawMidnightLines(weatherCharts.temp, midnightIndices, 'Temp'), 100);
 }
 
 function renderPrecipitationChart(labels, prec, midnightIndices){
@@ -352,6 +358,7 @@ function renderPrecipitationChart(labels, prec, midnightIndices){
       maintainAspectRatio:false
     }
   });
+  setTimeout(() => drawMidnightLines(weatherCharts.precip, midnightIndices, 'Precip'), 100);
 }
 
 function renderWindChart(labels, wind, midnightIndices){
@@ -385,6 +392,7 @@ function renderWindChart(labels, wind, midnightIndices){
       maintainAspectRatio:false
     }
   });
+  setTimeout(() => drawMidnightLines(weatherCharts.wind, midnightIndices, 'Wind'), 100);
 }
 
 async function initMap(lat, lon){
@@ -398,21 +406,45 @@ async function initMap(lat, lon){
 
 async function addRadarLayer(){
   // Fetch RainViewer weather-maps metadata and overlay the latest radar
-  const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-  if(!res.ok) throw new Error('RainViewer maps fetch failed');
-  const meta = await res.json();
-  // meta should contain host and radar.past array of frames {time, path}
-  const host = meta.host || 'https://tilecache.rainviewer.com';
-  const frames = meta.radar && Array.isArray(meta.radar.past) ? meta.radar.past : [];
-  if(!frames.length) return;
-  const frame = frames[frames.length-1];
-  const path = frame.path || `/v2/radar/${frame.time}`;
-    // build tile URL: {host}{path}/{size}/{z}/{x}/{y}/{color}/{options}.png
-    const size = 256; const color = 2; const options = '1_1';
-  const url = `${host}${path}/${size}/{z}/{x}/{y}/${color}/${options}.png`;
-  if(radarLayer) map.removeLayer(radarLayer);
-  // RainViewer supports limited native zoom; limit requests to avoid "Zoom Level Not Supported" tiles
-  radarLayer = L.tileLayer(url, {opacity:0.6, attribution:'RainViewer', tileSize:256, maxNativeZoom:10, maxZoom:12}).addTo(map);
+  try{
+    const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    if(!res.ok) throw new Error(`RainViewer API status ${res.status}`);
+    const meta = await res.json();
+    console.log('RainViewer meta:', meta);
+    
+    // meta should contain host and radar.past array of frames {time, path}
+    const host = meta.host || 'https://tilecache.rainviewer.com';
+    const frames = meta.radar && Array.isArray(meta.radar.past) ? meta.radar.past : [];
+    console.log('RainViewer frames:', frames.length);
+    
+    if(!frames.length) {
+      console.warn('No RainViewer frames available');
+      return;
+    }
+    
+    const frame = frames[frames.length-1];
+    console.log('Latest frame:', frame);
+    
+    const path = frame.path || `/v2/radar/${frame.time}`;
+    const size = 256; 
+    const color = 2; 
+    const options = '1_1';
+    const url = `${host}${path}/${size}/{z}/{x}/{y}/${color}/${options}.png`;
+    console.log('RainViewer tile URL:', url);
+    
+    if(radarLayer) map.removeLayer(radarLayer);
+    radarLayer = L.tileLayer(url, {
+      opacity:0.6, 
+      attribution:'RainViewer', 
+      tileSize:256, 
+      maxNativeZoom:16, 
+      maxZoom:18
+    }).addTo(map);
+    
+    console.log('RainViewer layer added successfully');
+  }catch(e){
+    console.error('RainViewer error:', e);
+  }
 }
 
 // Minimal geocoding using Nominatim
