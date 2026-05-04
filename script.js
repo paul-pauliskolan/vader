@@ -4,6 +4,8 @@
 const DEFAULT = { lat: 55.6050, lon: 13.0038, name: 'Malmö' };
 
 let map, radarLayer, weatherCharts = {}, overlayCanvases = {}, allRadarFrames = [], radarPlayInterval = null, radarPlaying = false;
+let latestWeatherData = null;
+let resizeChartTimer = null;
 
 function drawMidnightLines(chart, midnightIndices, chartName){
   if(!midnightIndices || midnightIndices.length === 0) return;
@@ -123,6 +125,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initUI();
   initMap(DEFAULT.lat, DEFAULT.lon);
   loadAll(DEFAULT.lat, DEFAULT.lon);
+  window.addEventListener('resize', () => {
+    if(!latestWeatherData) return;
+    clearTimeout(resizeChartTimer);
+    resizeChartTimer = setTimeout(() => renderChart(latestWeatherData), 150);
+  });
 });
 
 function initUI(){
@@ -139,6 +146,7 @@ function initUI(){
 async function loadAll(lat, lon){
   try{
     const data = await fetchWeather(lat, lon);
+    latestWeatherData = data;
     renderCurrent(data);
     renderForecast(data);
     try{
@@ -278,6 +286,15 @@ function formatDateSv(dateStr){
   return new Intl.DateTimeFormat('sv-SE', { weekday:'short', day:'numeric', month:'short' }).format(date);
 }
 
+function formatDateSvCompact(dateStr){
+  const date = new Date(dateStr + 'T00:00:00');
+  return new Intl.DateTimeFormat('sv-SE', { day:'numeric', month:'numeric' }).format(date);
+}
+
+function shouldUseCompactChartLabels(){
+  return window.innerWidth < 720;
+}
+
 function renderChart(data){
   const maxPoints = 168; // up to 7 days hourly
   const rawTimes = data.hourly?.time || [];
@@ -328,21 +345,26 @@ function getMidnightIndices(times){
 }
 
 function buildDateLabels(times){
+  const compact = shouldUseCompactChartLabels();
   let lastDate = '';
   return times.map(time => {
     const date = time.slice(0, 10);
     if(date !== lastDate){
       lastDate = date;
-      return formatDateSv(date);
+      return compact ? formatDateSvCompact(date) : formatDateSv(date);
     }
     return '';
   });
 }
 
+function getChartCanvasWidth(canvas){
+  return Math.max(320, Math.floor(canvas.getBoundingClientRect().width || canvas.clientWidth || 600));
+}
+
 function renderTemperatureChart(labels, temps, midnightIndices, currentHourIdx){
   const canvas = document.getElementById('tempChart');
   if(!canvas) return;
-  canvas.width = 1200;
+  canvas.width = getChartCanvasWidth(canvas);
   canvas.height = 170;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -386,7 +408,7 @@ function renderTemperatureChart(labels, temps, midnightIndices, currentHourIdx){
 function renderPrecipitationChart(labels, prec, midnightIndices, currentHourIdx){
   const canvas = document.getElementById('precipChart');
   if(!canvas) return;
-  canvas.width = 1200;
+  canvas.width = getChartCanvasWidth(canvas);
   canvas.height = 140;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -423,7 +445,7 @@ function renderPrecipitationChart(labels, prec, midnightIndices, currentHourIdx)
 function renderWindChart(labels, wind, midnightIndices, currentHourIdx){
   const canvas = document.getElementById('windChart');
   if(!canvas) return;
-  canvas.width = 1200;
+  canvas.width = getChartCanvasWidth(canvas);
   canvas.height = 140;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
