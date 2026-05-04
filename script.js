@@ -3,7 +3,7 @@
 
 const DEFAULT = { lat: 55.6050, lon: 13.0038, name: 'Malmö' };
 
-let map, radarLayer, weatherChart;
+let map, radarLayer, weatherCharts = {};
 
 if (typeof Chart !== 'undefined' && Chart.registerables) {
   Chart.register(...Chart.registerables);
@@ -125,7 +125,7 @@ function getDailyUV(data){
 function getUVLabel(value){
   if(value == null) return 'Saknas';
   if(value <= 2) return 'Låg';
-  if(value <= 5) return 'Medel';
+  if(value <= 5) return 'Måttlig';
   return 'Hög';
 }
 
@@ -169,58 +169,104 @@ function formatDateSv(dateStr){
 }
 
 function renderChart(data){
-  const canvas = document.getElementById('weatherChart');
-  // use a fixed canvas height so Chart.js does not keep resizing vertically
-  canvas.width = canvas.clientWidth || canvas.width || 600;
-  canvas.height = 260;
-  canvas.style.display = 'block';
-  canvas.style.width = '100%';
-  canvas.style.height = '260px';
-  const ctx = canvas.getContext('2d');
   const maxPoints = 168; // up to 7 days hourly
   const rawTimes = data.hourly?.time || [];
   const sliceLen = Math.min(rawTimes.length, maxPoints);
-  console.log('renderChart: sliceLen', sliceLen);
   const times = rawTimes.slice(0, sliceLen).map(t=>t.replace('T',' '));
   const temps = (data.hourly?.temperature_2m || []).slice(0, sliceLen);
   const prec = (data.hourly?.precipitation || []).slice(0, sliceLen);
-  const dew = (data.hourly?.dewpoint_2m || []).slice(0, sliceLen);
   const wind = (data.hourly?.windspeed_10m || []).slice(0, sliceLen);
-  console.log('renderChart samples temps[0]', temps[0], 'prec[0]', prec[0], 'dew[0]', dew[0], 'wind[0]', wind[0]);
 
-  // construct a simple uncertainty band around temperature (±2°C)
+  console.log('renderChart: sliceLen', sliceLen);
+  console.log('renderChart samples temps[0]', temps[0], 'prec[0]', prec[0], 'wind[0]', wind[0]);
+
+  renderTemperatureChart(times, temps);
+  renderPrecipitationChart(times, prec);
+  renderWindChart(times, wind);
+}
+
+function renderTemperatureChart(labels, temps){
+  const canvas = document.getElementById('tempChart');
+  if(!canvas) return;
+  canvas.width = canvas.clientWidth || canvas.width || 600;
+  canvas.height = 170;
+  canvas.style.display = 'block';
+  canvas.style.width = '100%';
+  canvas.style.height = '170px';
+  const ctx = canvas.getContext('2d');
+  if(weatherCharts.temp) weatherCharts.temp.destroy();
+
   const lower = temps.map(v=> (v==null?null:v-2));
   const upper = temps.map(v=> (v==null?null:v+2));
 
-  if(weatherChart) weatherChart.destroy();
-
-  weatherChart = new Chart(ctx, {
+  weatherCharts.temp = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: times,
+      labels,
       datasets: [
-        // lower bound (invisible)
-        { label:'lower', data: lower, borderWidth:0, pointRadius:0, backgroundColor:'rgba(0,0,0,0)', fill:false },
-        // upper bound fills to previous (lower) to create band
-        { label:'Temp range', data: upper, borderWidth:0, pointRadius:0, backgroundColor:'rgba(239,68,68,0.12)', fill:'-1' },
-        // temperature line
-        { type:'line', label:'Temperature (°C)', data: temps, yAxisID:'y', borderColor:'#ef4444', backgroundColor:'rgba(239,68,68,0.08)', tension:0.25, pointRadius:0.5 },
-        // dew point
-        { type:'line', label:'Dew point (°C)', data: dew, yAxisID:'y', borderColor:'#60a5fa', borderDash:[4,4], backgroundColor:'rgba(96,165,250,0.06)', tension:0.25, pointRadius:0.5 },
-        // precipitation bars
-        { type:'bar', label:'Precipitation (mm)', data: prec, yAxisID:'y2', backgroundColor:'rgba(96,165,250,0.7)' },
-        // wind line on separate axis
-        { type:'line', label:'Wind (km/h)', data: wind, yAxisID:'y3', borderColor:'#7c3aed', backgroundColor:'rgba(124,58,237,0.08)', tension:0.2, pointRadius:0.5 }
+        { label:'Lower', data: lower, borderWidth:0, pointRadius:0, backgroundColor:'rgba(0,0,0,0)', fill:false },
+        { label:'Band', data: upper, borderWidth:0, pointRadius:0, backgroundColor:'rgba(239,68,68,0.12)', fill:'-1' },
+        { type:'line', label:'Temperatur (°C)', data: temps, borderColor:'#ef4444', backgroundColor:'rgba(239,68,68,0.08)', tension:0.25, pointRadius:0.5 }
       ]
     },
     options:{
       interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:true}},
-      scales:{
-        y:{type:'linear',position:'left',title:{display:true,text:'°C'}},
-        y2:{type:'linear',position:'right',title:{display:true,text:'mm'},grid:{drawOnChartArea:false}},
-        y3:{type:'linear',position:'right',display:true,grid:{drawOnChartArea:false},ticks:{color:'#7c3aed'},title:{display:true,text:'km/h'}}
-      },
+      plugins:{legend:{display:false}},
+      scales:{y:{type:'linear',title:{display:true,text:'°C'}}},
+      responsive:false,
+      maintainAspectRatio:false
+    }
+  });
+}
+
+function renderPrecipitationChart(labels, prec){
+  const canvas = document.getElementById('precipChart');
+  if(!canvas) return;
+  canvas.width = canvas.clientWidth || canvas.width || 600;
+  canvas.height = 140;
+  canvas.style.display = 'block';
+  canvas.style.width = '100%';
+  canvas.style.height = '140px';
+  const ctx = canvas.getContext('2d');
+  if(weatherCharts.precip) weatherCharts.precip.destroy();
+
+  weatherCharts.precip = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ label:'Nederbörd (mm)', data: prec, backgroundColor:'rgba(96,165,250,0.8)' }]
+    },
+    options:{
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false}},
+      scales:{y:{type:'linear',beginAtZero:true,title:{display:true,text:'mm'}}},
+      responsive:false,
+      maintainAspectRatio:false
+    }
+  });
+}
+
+function renderWindChart(labels, wind){
+  const canvas = document.getElementById('windChart');
+  if(!canvas) return;
+  canvas.width = canvas.clientWidth || canvas.width || 600;
+  canvas.height = 140;
+  canvas.style.display = 'block';
+  canvas.style.width = '100%';
+  canvas.style.height = '140px';
+  const ctx = canvas.getContext('2d');
+  if(weatherCharts.wind) weatherCharts.wind.destroy();
+
+  weatherCharts.wind = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{ label:'Vind (m/s)', data: wind, borderColor:'#7c3aed', backgroundColor:'rgba(124,58,237,0.08)', tension:0.2, pointRadius:0.5, fill:false }]
+    },
+    options:{
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false}},
+      scales:{y:{type:'linear',title:{display:true,text:'m/s'}}},
       responsive:false,
       maintainAspectRatio:false
     }
@@ -276,8 +322,10 @@ async function useGeolocation(){
 
 // Pollenrapporten: attempt to fetch Swedish pollen forecast. If unavailable, show fallback.
 async function fetchPollen(lat, lon){
-  const out = document.getElementById('pollenList');
-  out.innerHTML = 'Läser in pollen…';
+  const forecastOut = document.getElementById('pollenList');
+  const currentOut = document.getElementById('currentPollenList');
+  forecastOut.innerHTML = 'Läser in pollen…';
+  if(currentOut) currentOut.innerHTML = 'Läser in pollen…';
 
   try{
     // 1) fetch regions and choose nearest region (or name match)
@@ -321,10 +369,11 @@ async function fetchPollen(lat, lon){
     if(!forecast) throw new Error('No forecast for region');
 
     const cJson = cRes.ok ? await cRes.json() : {items: []};
-    const measured = extractMeasuredPollen(cJson.items || [], types);
-    const forecastItems = buildThreeDayForecast(forecast, types, levelDefs);
+    const currentItems = buildCurrentPollen(forecast, types);
+    const forecastItems = buildThreeDayForecast(forecast, types);
 
-    renderPollen({measured, forecastItems, levelDefs});
+    renderCurrentPollen({currentItems});
+    renderPollen({forecastItems});
     return;
   }catch(e){
     console.warn('Pollen endpoint failed', e);
@@ -336,74 +385,94 @@ async function fetchPollen(lat, lon){
     {name:'Gräs', level:1},
     {name:'Al', level:3}
   ];
-  renderPollen({measured: [], forecastItems: sample, levelDefs: {1:'Låga',2:'Låga till måttliga',3:'Måttliga'}});
+  renderCurrentPollen({currentItems: sample});
+  renderPollen({forecastItems: sample});
+}
+
+function renderCurrentPollen(data){
+  const out = document.getElementById('currentPollenList');
+  if(!out) return;
+  out.innerHTML = '';
+  const currentItems = data.currentItems || [];
+
+  const currentSection = document.createElement('div');
+  currentSection.className = 'pollen-section';
+  currentSection.innerHTML = '<h3>Pollenprognos</h3>';
+
+  const pollenOrder = ['Björk', 'Gräs', 'Gråbo'];
+  const filteredItems = pollenOrder.map(name => {
+    const item = currentItems.find(entry => normalizePollenName(entry.name) === normalizePollenName(name));
+    return item || { name, level: 0 };
+  });
+
+  if(filteredItems.length){
+    filteredItems.forEach(it=>{
+      const row = document.createElement('div');
+      row.className = 'pollen-item';
+      const lvl = typeof it.level === 'number' ? it.level : 0;
+      const cat = getPollenSeverityClass(lvl);
+      const label = getPollenSeverityLabel(lvl);
+      row.innerHTML = `<div>${it.name}</div><div><span class="pollen-level ${cat}">${label}</span></div>`;
+      currentSection.appendChild(row);
+    });
+  } else {
+    currentSection.innerHTML += '<div class="pollen-empty">Ingen pollenprognos tillgänglig</div>';
+  }
+
+  out.appendChild(currentSection);
 }
 
 function renderPollen(data){
   const out = document.getElementById('pollenList');
   out.innerHTML = '';
-  const measured = data.measured || [];
   const forecastItems = data.forecastItems || [];
-  const levelDefs = data.levelDefs || {};
-
-  const measuredSection = document.createElement('div');
-  measuredSection.className = 'pollen-section';
-  measuredSection.innerHTML = '<h3>Uppmätta värden</h3>';
-
-  if(measured.length){
-    measured.forEach(it=>{
-      const row = document.createElement('div');
-      row.className = 'pollen-item';
-      row.innerHTML = `<div>${it.name}</div><div>${it.dailyCount} (${it.countDescription})</div>`;
-      measuredSection.appendChild(row);
-    });
-  } else {
-    measuredSection.innerHTML += '<div class="pollen-empty">Inga uppmätta värden just nu</div>';
-  }
 
   const forecastSection = document.createElement('div');
   forecastSection.className = 'pollen-section';
   forecastSection.innerHTML = '<h3>3-dygnsprognos</h3>';
 
   if(forecastItems.length){
-    forecastItems.forEach(it=>{
+    const pollenOrder = ['Björk', 'Gräs', 'Gråbo'];
+    const filteredItems = pollenOrder.map(name => {
+      const item = forecastItems.find(entry => normalizePollenName(entry.name) === normalizePollenName(name));
+      return item || { name, level: 0 };
+    });
+
+    filteredItems.forEach(it=>{
       const row = document.createElement('div');
       row.className = 'pollen-item';
       const lvl = typeof it.level === 'number' ? it.level : (it.level || 0);
-      const cat = lvl >= 5 ? 'high' : (lvl >= 3 ? 'moderate' : 'low');
-      const label = levelDefs[lvl] || (lvl===0 ? 'Inga halter' : `Nivå ${lvl}`);
-      row.innerHTML = `<div>${it.day ? `${it.day} - ${it.name}` : it.name}</div><div><span class="pollen-level ${cat}">${label}</span></div>`;
+      const cat = getPollenSeverityClass(lvl);
+      const label = getPollenSeverityLabel(lvl);
+      row.innerHTML = `<div>${it.name}</div><div><span class="pollen-level ${cat}">${label}</span></div>`;
       forecastSection.appendChild(row);
     });
   } else {
     forecastSection.innerHTML += '<div class="pollen-empty">Ingen prognos tillgänglig</div>';
   }
 
-  out.appendChild(measuredSection);
   out.appendChild(forecastSection);
 }
 
-function extractMeasuredPollen(items, types){
-  const latestByType = new Map();
-  items.forEach(item=>{
-    if(item.technicalError || item.dailyCount == null) return;
-    if(!item.dailyCount || item.dailyCount <= 0) return;
-    const existing = latestByType.get(item.pollenId);
-    const dateValue = new Date(item.date).getTime();
-    if(!existing || dateValue > existing.dateValue){
-      latestByType.set(item.pollenId, {
-        pollenId: item.pollenId,
-        name: types[item.pollenId]?.name || 'Okänt',
-        dailyCount: item.dailyCount,
-        countDescription: item.countDescription || 'Mätta halter',
-        dateValue
-      });
-    }
+function buildCurrentPollen(forecast, types){
+  const series = forecast.levelSeries || [];
+  const dates = [...new Set(series.map(item=>item.time?.slice(0,10)).filter(Boolean))];
+  const today = dates[0];
+  const daySeries = series.filter(item => item.time?.startsWith(today));
+  const byPollen = new Map();
+  daySeries.forEach(entry=>{
+    const prev = byPollen.get(entry.pollenId) ?? -1;
+    if(entry.level > prev) byPollen.set(entry.pollenId, entry.level);
   });
-  return Array.from(latestByType.values()).sort((a,b)=>b.dailyCount-a.dailyCount);
+  return Array.from(byPollen.entries())
+    .map(([pollenId, level]) => ({
+      name: types[pollenId]?.name || 'Okänt',
+      level,
+    }))
+    .sort((a,b)=>b.level-a.level);
 }
 
-function buildThreeDayForecast(forecast, types, levelDefs){
+function buildThreeDayForecast(forecast, types){
   const series = forecast.levelSeries || [];
   const dates = [...new Set(series.map(item=>item.time?.slice(0,10)).filter(Boolean))].slice(0,3);
   return dates.map(date => {
@@ -417,12 +486,31 @@ function buildThreeDayForecast(forecast, types, levelDefs){
     const pollenName = strongest[0] ? (types[strongest[0]]?.name || 'Okänt') : 'Inga halter';
     const level = strongest[1];
     return {
-      day: formatDateSv(date),
       name: pollenName,
       level,
-      levelText: levelDefs[level] || `Nivå ${level}`
     };
   });
+}
+
+function normalizePollenName(name){
+  return String(name || '')
+    .toLowerCase()
+    .replace(/å/g, 'a')
+    .replace(/ä/g, 'a')
+    .replace(/ö/g, 'o')
+    .trim();
+}
+
+function getPollenSeverityClass(level){
+  if(level >= 5) return 'high';
+  if(level >= 2) return 'moderate';
+  return 'low';
+}
+
+function getPollenSeverityLabel(level){
+  if(level >= 5) return 'Hög';
+  if(level >= 2) return 'Måttlig';
+  return 'Låg';
 }
 
 function haversine(lat1, lon1, lat2, lon2){

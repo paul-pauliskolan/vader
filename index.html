@@ -22,6 +22,10 @@
       <div class="card current" id="currentCard">
         <h2>Nuvarande väder</h2>
         <div id="currentContent">Läser in väder…</div>
+        <div class="current-pollen" id="currentPollenSection">
+          <h3>Pollenprognos</h3>
+          <div id="currentPollenList">Läser in pollen…</div>
+        </div>
       </div>
 
       <div class="card forecast" id="forecastCard">
@@ -31,7 +35,20 @@
 
       <div class="card chart" id="chartCard">
         <h2>Temperatur och nederbörd</h2>
-        <canvas id="weatherChart" height="160"></canvas>
+        <div class="chart-stack">
+          <div class="chart-block">
+            <h3>Temperatur</h3>
+            <canvas id="tempChart" height="160"></canvas>
+          </div>
+          <div class="chart-block">
+            <h3>Nederbörd</h3>
+            <canvas id="precipChart" height="140"></canvas>
+          </div>
+          <div class="chart-block">
+            <h3>Vind</h3>
+            <canvas id="windChart" height="140"></canvas>
+          </div>
+        </div>
       </div>
 
       <div class="card map" id="mapCard">
@@ -40,7 +57,7 @@
       </div>
 
       <div class="card pollen" id="pollenCard">
-        <h2>Pollenprognos (Sverige)</h2>
+        <h2>3-dygnsprognos pollen</h2>
         <div id="pollenList">Läser in pollen…</div>
       </div>
     </section>
