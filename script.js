@@ -277,7 +277,7 @@ async function useGeolocation(){
 // Pollenrapporten: attempt to fetch Swedish pollen forecast. If unavailable, show fallback.
 async function fetchPollen(lat, lon){
   const out = document.getElementById('pollenList');
-  out.innerHTML = 'Fetching pollen…';
+  out.innerHTML = 'Läser in pollen…';
 
   try{
     // 1) fetch regions and choose nearest region (or name match)
@@ -309,33 +309,22 @@ async function fetchPollen(lat, lon){
     const types = (typesJson.items || []).reduce((m,it)=> (m[it.id]=it, m), {});
     const levelDefs = (levelsJson.items || []).reduce((m,it)=> (m[it.level]=it.name, m), {});
 
-    // 3) fetch forecasts for that region
     const forecastsUrl = region.forecasts || `https://api.pollenrapporten.se/v1/forecasts?region_id=${region.id}&current=true`;
-    const fRes = await fetch(forecastsUrl);
+    const countsUrl = `https://api.pollenrapporten.se/v1/pollen-count?region_id=${region.id}&offset=0&limit=100&has_technical_error=false`;
+
+    // 3) fetch forecasts and counts for that region
+    const [fRes, cRes] = await Promise.all([fetch(forecastsUrl), fetch(countsUrl)]);
     if(!fRes.ok) throw new Error('Forecasts fetch failed');
+
     const fJson = await fRes.json();
     const forecast = (fJson.items && fJson.items.length) ? fJson.items[0] : null;
     if(!forecast) throw new Error('No forecast for region');
 
-    // 4) aggregate latest level per pollenId
-    const levelSeries = forecast.levelSeries || [];
-    // group by pollenId -> take max level across dates (simple summary)
-    const agg = {};
-    levelSeries.forEach(entry=>{
-      const id = entry.pollenId;
-      const lvl = entry.level;
-      if(!(id in agg) || (lvl > agg[id])) agg[id] = lvl;
-    });
+    const cJson = cRes.ok ? await cRes.json() : {items: []};
+    const measured = extractMeasuredPollen(cJson.items || [], types);
+    const forecastItems = buildThreeDayForecast(forecast, types, levelDefs);
 
-    // map to display items
-    const items = Object.keys(agg).map(pid=>{
-      const p = types[pid];
-      const name = p ? p.name : (pid);
-      const level = agg[pid];
-      return { id: pid, name, level };
-    }).sort((a,b)=>b.level-a.level);
-
-    renderPollen({items, levelDefs});
+    renderPollen({measured, forecastItems, levelDefs});
     return;
   }catch(e){
     console.warn('Pollen endpoint failed', e);
@@ -343,31 +332,96 @@ async function fetchPollen(lat, lon){
 
   // Fallback sample data (to ensure UI remains useful)
   const sample = [
-    {name:'Birch', level:2},
-    {name:'Grass', level:1},
-    {name:'Alder', level:3}
+    {name:'Björk', level:2},
+    {name:'Gräs', level:1},
+    {name:'Al', level:3}
   ];
-  renderPollen({items: sample, levelDefs: {1:'Låga',2:'Låga till måttliga',3:'Måttliga'}});
+  renderPollen({measured: [], forecastItems: sample, levelDefs: {1:'Låga',2:'Låga till måttliga',3:'Måttliga'}});
 }
 
 function renderPollen(data){
   const out = document.getElementById('pollenList');
   out.innerHTML = '';
-  const items = data.items || [];
+  const measured = data.measured || [];
+  const forecastItems = data.forecastItems || [];
   const levelDefs = data.levelDefs || {};
 
-  if(!items.length){ out.textContent = 'Ingen prognos tillgänglig'; return; }
+  const measuredSection = document.createElement('div');
+  measuredSection.className = 'pollen-section';
+  measuredSection.innerHTML = '<h3>Uppmätta värden</h3>';
 
-  items.forEach(it=>{
-    const el = document.createElement('div');
-    el.className = 'pollen-item';
-    const lvl = typeof it.level === 'number' ? it.level : (it.level || 0);
-    // map numeric level to simple categories
-    const cat = lvl >= 5 ? 'high' : (lvl >= 3 ? 'moderate' : 'low');
-    const label = levelDefs[lvl] || (lvl===0? 'Inga halter' : `Nivå ${lvl}`);
-    const badge = `<span class="pollen-level ${cat}">${label}</span>`;
-    el.innerHTML = `<div>${it.name || it.type || 'Okänt'}</div><div>${badge}</div>`;
-    out.appendChild(el);
+  if(measured.length){
+    measured.forEach(it=>{
+      const row = document.createElement('div');
+      row.className = 'pollen-item';
+      row.innerHTML = `<div>${it.name}</div><div>${it.dailyCount} (${it.countDescription})</div>`;
+      measuredSection.appendChild(row);
+    });
+  } else {
+    measuredSection.innerHTML += '<div class="pollen-empty">Inga uppmätta värden just nu</div>';
+  }
+
+  const forecastSection = document.createElement('div');
+  forecastSection.className = 'pollen-section';
+  forecastSection.innerHTML = '<h3>3-dygnsprognos</h3>';
+
+  if(forecastItems.length){
+    forecastItems.forEach(it=>{
+      const row = document.createElement('div');
+      row.className = 'pollen-item';
+      const lvl = typeof it.level === 'number' ? it.level : (it.level || 0);
+      const cat = lvl >= 5 ? 'high' : (lvl >= 3 ? 'moderate' : 'low');
+      const label = levelDefs[lvl] || (lvl===0 ? 'Inga halter' : `Nivå ${lvl}`);
+      row.innerHTML = `<div>${it.day ? `${it.day} - ${it.name}` : it.name}</div><div><span class="pollen-level ${cat}">${label}</span></div>`;
+      forecastSection.appendChild(row);
+    });
+  } else {
+    forecastSection.innerHTML += '<div class="pollen-empty">Ingen prognos tillgänglig</div>';
+  }
+
+  out.appendChild(measuredSection);
+  out.appendChild(forecastSection);
+}
+
+function extractMeasuredPollen(items, types){
+  const latestByType = new Map();
+  items.forEach(item=>{
+    if(item.technicalError || item.dailyCount == null) return;
+    if(!item.dailyCount || item.dailyCount <= 0) return;
+    const existing = latestByType.get(item.pollenId);
+    const dateValue = new Date(item.date).getTime();
+    if(!existing || dateValue > existing.dateValue){
+      latestByType.set(item.pollenId, {
+        pollenId: item.pollenId,
+        name: types[item.pollenId]?.name || 'Okänt',
+        dailyCount: item.dailyCount,
+        countDescription: item.countDescription || 'Mätta halter',
+        dateValue
+      });
+    }
+  });
+  return Array.from(latestByType.values()).sort((a,b)=>b.dailyCount-a.dailyCount);
+}
+
+function buildThreeDayForecast(forecast, types, levelDefs){
+  const series = forecast.levelSeries || [];
+  const dates = [...new Set(series.map(item=>item.time?.slice(0,10)).filter(Boolean))].slice(0,3);
+  return dates.map(date => {
+    const daySeries = series.filter(item => item.time?.startsWith(date));
+    const maxByPollen = new Map();
+    daySeries.forEach(entry => {
+      const prev = maxByPollen.get(entry.pollenId) ?? -1;
+      if(entry.level > prev) maxByPollen.set(entry.pollenId, entry.level);
+    });
+    const strongest = Array.from(maxByPollen.entries()).sort((a,b)=>b[1]-a[1])[0] || [null, 0];
+    const pollenName = strongest[0] ? (types[strongest[0]]?.name || 'Okänt') : 'Inga halter';
+    const level = strongest[1];
+    return {
+      day: formatDateSv(date),
+      name: pollenName,
+      level,
+      levelText: levelDefs[level] || `Nivå ${level}`
+    };
   });
 }
 
