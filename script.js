@@ -597,18 +597,15 @@ async function fetchPollen(lat, lon){
     const regionsJson = await regionsRes.json();
     const regions = regionsJson.items || [];
 
-    // find exact name match first
-    let region = regions.find(r=> (r.name||'').toLowerCase().includes('malm'));
-    if(!region){
-      // fallback: nearest by distance
-      region = regions.reduce((best,r)=>{
-        if(!r.latitude || !r.longitude) return best;
-        const d = haversine(lat, lon, parseFloat(r.latitude), parseFloat(r.longitude));
-        if(!best || d < best.d) return {r, d};
-        return best;
-      }, null);
-      region = region && region.r ? region.r : regions[0];
+    // choose nearest region by geographic distance (use provided lat/lon)
+    let nearest = null;
+    for(const r of regions){
+      if(!r.latitude || !r.longitude) continue;
+      const d = haversine(lat, lon, parseFloat(r.latitude), parseFloat(r.longitude));
+      if(!nearest || d < nearest.d) nearest = { r, d };
     }
+    let region = nearest ? nearest.r : regions[0];
+    console.log('Selected pollen region:', region && region.name);
 
     // 2) fetch pollen types and level definitions
     const [typesRes, levelsRes] = await Promise.all([
