@@ -35,12 +35,14 @@ body{font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Rob
 #forecastList{display:flex;flex-direction:column;gap:8px}
 .forecast-day{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:#fbfdff;border:1px solid #eef5ff}
 
-.pollen-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;margin-bottom:8px}
+.pollen-item{display:inline-flex;gap:12px;align-items:center;padding:0;margin-right:16px}
+.pollen-item:last-child{margin-right:0}
 .pollen-section{margin-bottom:12px}
 .pollen-section h3{margin:0 0 8px 0;font-size:.92rem}
 .pollen-empty{padding:8px;border-radius:8px;background:#fbfdff;border:1px dashed #dbe7f5;color:var(--muted)}
-.current-pollen{margin-top:12px;padding-top:12px;border-top:1px solid #eef2f7}
-.current-pollen h3{margin:0 0 8px 0;font-size:.92rem}
+.current-pollen{margin-top:10px;padding-top:10px;border-top:1px solid #eef2f7}
+.current-pollen h3{margin:0 0 6px 0;font-size:.92rem;font-weight:600}
+.current-pollen #currentPollenList{display:flex;flex-wrap:wrap;gap:0}
 .pollen-level.low{background:rgba(16,185,129,0.08);color:var(--success)}
 .pollen-level.moderate{background:rgba(245,158,11,0.08);color:var(--warning)}
 .pollen-level.high{background:rgba(239,68,68,0.08);color:var(--danger)}

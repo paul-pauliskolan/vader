@@ -41,6 +41,39 @@ function drawMidnightLines(chart, midnightIndices, chartName){
   mainCtx.restore();
 }
 
+function drawCurrentHourLine(chart, currentHourIdx, chartName){
+  if(currentHourIdx < 0) return;
+  
+  const mainCanvas = chart.canvas;
+  const mainCtx = mainCanvas.getContext('2d');
+  const xScale = chart.scales.x;
+  const yScale = chart.scales.y;
+  
+  if(!xScale || !yScale) {
+    console.log('No scales available for current hour line');
+    return;
+  }
+  
+  console.log(`${chartName}: Drawing current hour line at index ${currentHourIdx}`);
+  
+  // Draw a blue/green line for current time
+  mainCtx.save();
+  mainCtx.strokeStyle = '#3b82f6';
+  mainCtx.lineWidth = 2;
+  mainCtx.globalAlpha = 0.8;
+  mainCtx.globalCompositeOperation = 'source-over';
+  mainCtx.setLineDash([5, 5]);
+  
+  const xPos = xScale.getPixelForValue(currentHourIdx);
+  console.log(`${chartName}: currentHourIdx ${currentHourIdx} -> xPos: ${xPos}`);
+  mainCtx.beginPath();
+  mainCtx.moveTo(xPos, chart.chartArea.top);
+  mainCtx.lineTo(xPos, chart.chartArea.bottom);
+  mainCtx.stroke();
+  
+  mainCtx.restore();
+}
+
 // Chart.js plugin for vertical lines at midnight
 const verticalMidnightPlugin = {
   id: 'verticalMidnightLines',
@@ -248,21 +281,41 @@ function formatDateSv(dateStr){
 function renderChart(data){
   const maxPoints = 168; // up to 7 days hourly
   const rawTimes = data.hourly?.time || [];
-  const sliceLen = Math.min(rawTimes.length, maxPoints);
-  const slicedRawTimes = rawTimes.slice(0, sliceLen);
+  
+  // Find current hour index
+  const now = new Date();
+  const nowHour = now.getHours();
+  const nowDate = now.toISOString().split('T')[0];
+  const nowTimeString = `${nowDate}T${String(nowHour).padStart(2,'0')}:00`;
+  
+  let startIdx = 0;
+  let currentHourIdx = -1;
+  
+  // Find the index closest to current time
+  for(let i = 0; i < rawTimes.length; i++){
+    if(rawTimes[i] >= nowTimeString){
+      startIdx = i;
+      currentHourIdx = 0; // This will be index 0 in our sliced data
+      break;
+    }
+  }
+  
+  const sliceLen = Math.min(rawTimes.length - startIdx, maxPoints);
+  const slicedRawTimes = rawTimes.slice(startIdx, startIdx + sliceLen);
   const times = buildDateLabels(slicedRawTimes);
   const midnightIndices = getMidnightIndices(slicedRawTimes);
-  const temps = (data.hourly?.temperature_2m || []).slice(0, sliceLen);
-  const prec = (data.hourly?.precipitation || []).slice(0, sliceLen);
-  const wind = (data.hourly?.windspeed_10m || []).slice(0, sliceLen);
+  const temps = (data.hourly?.temperature_2m || []).slice(startIdx, startIdx + sliceLen);
+  const prec = (data.hourly?.precipitation || []).slice(startIdx, startIdx + sliceLen);
+  const windRaw = (data.hourly?.windspeed_10m || []).slice(startIdx, startIdx + sliceLen);
+  const wind = windRaw.map(v => v != null ? v / 3.6 : null); // Konvertera från km/h till m/s
 
-  console.log('renderChart: sliceLen', sliceLen);
+  console.log('renderChart: startIdx', startIdx, 'currentHourIdx', currentHourIdx, 'sliceLen', sliceLen);
   console.log('renderChart samples temps[0]', temps[0], 'prec[0]', prec[0], 'wind[0]', wind[0]);
   console.log('Midnight indices found:', midnightIndices);
 
-  renderTemperatureChart(times, temps, midnightIndices);
-  renderPrecipitationChart(times, prec, midnightIndices);
-  renderWindChart(times, wind, midnightIndices);
+  renderTemperatureChart(times, temps, midnightIndices, currentHourIdx);
+  renderPrecipitationChart(times, prec, midnightIndices, currentHourIdx);
+  renderWindChart(times, wind, midnightIndices, currentHourIdx);
 }
 
 function getMidnightIndices(times){
@@ -286,10 +339,10 @@ function buildDateLabels(times){
   });
 }
 
-function renderTemperatureChart(labels, temps, midnightIndices){
+function renderTemperatureChart(labels, temps, midnightIndices, currentHourIdx){
   const canvas = document.getElementById('tempChart');
   if(!canvas) return;
-  canvas.width = canvas.clientWidth || canvas.width || 600;
+  canvas.width = 1200;
   canvas.height = 170;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -324,13 +377,16 @@ function renderTemperatureChart(labels, temps, midnightIndices){
       maintainAspectRatio:false
     }
   });
-  setTimeout(() => drawMidnightLines(weatherCharts.temp, midnightIndices, 'Temp'), 100);
+  setTimeout(() => {
+    drawMidnightLines(weatherCharts.temp, midnightIndices, 'Temp');
+    if(currentHourIdx >= 0) drawCurrentHourLine(weatherCharts.temp, currentHourIdx, 'Temp');
+  }, 100);
 }
 
-function renderPrecipitationChart(labels, prec, midnightIndices){
+function renderPrecipitationChart(labels, prec, midnightIndices, currentHourIdx){
   const canvas = document.getElementById('precipChart');
   if(!canvas) return;
-  canvas.width = canvas.clientWidth || canvas.width || 600;
+  canvas.width = 1200;
   canvas.height = 140;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -358,13 +414,16 @@ function renderPrecipitationChart(labels, prec, midnightIndices){
       maintainAspectRatio:false
     }
   });
-  setTimeout(() => drawMidnightLines(weatherCharts.precip, midnightIndices, 'Precip'), 100);
+  setTimeout(() => {
+    drawMidnightLines(weatherCharts.precip, midnightIndices, 'Precip');
+    if(currentHourIdx >= 0) drawCurrentHourLine(weatherCharts.precip, currentHourIdx, 'Precip');
+  }, 100);
 }
 
-function renderWindChart(labels, wind, midnightIndices){
+function renderWindChart(labels, wind, midnightIndices, currentHourIdx){
   const canvas = document.getElementById('windChart');
   if(!canvas) return;
-  canvas.width = canvas.clientWidth || canvas.width || 600;
+  canvas.width = 1200;
   canvas.height = 140;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -392,7 +451,10 @@ function renderWindChart(labels, wind, midnightIndices){
       maintainAspectRatio:false
     }
   });
-  setTimeout(() => drawMidnightLines(weatherCharts.wind, midnightIndices, 'Wind'), 100);
+  setTimeout(() => {
+    drawMidnightLines(weatherCharts.wind, midnightIndices, 'Wind');
+    if(currentHourIdx >= 0) drawCurrentHourLine(weatherCharts.wind, currentHourIdx, 'Wind');
+  }, 100);
 }
 
 async function initMap(lat, lon){
@@ -570,24 +632,50 @@ async function fetchPollen(lat, lon){
     if(!forecast) throw new Error('No forecast for region');
 
     const cJson = cRes.ok ? await cRes.json() : {items: []};
+    const counts = (cJson.items || []).reduce((m, it) => {
+      const key = `${it.date}_${it.pollen_id}`;
+      m[key] = it.daily_count ?? 0;
+      return m;
+    }, {});
+    
     const currentItems = buildCurrentPollen(forecast, types);
-    const forecastItems = buildThreeDayForecast(forecast, types);
+    const forecastData = buildThreeDayForecastByType(forecast, types);
 
-    renderCurrentPollen({currentItems});
-    renderPollen({forecastItems});
+    renderCurrentPollen({currentItems, counts, types});
+    renderPollen({forecastData, counts, types});
     return;
   }catch(e){
     console.warn('Pollen endpoint failed', e);
   }
 
   // Fallback sample data (to ensure UI remains useful)
-  const sample = [
-    {name:'Björk', level:2},
-    {name:'Gräs', level:1},
-    {name:'Al', level:3}
+  const sampleCurrent = [
+    {name:'Björk', level:2, pollenId:'1', date:'2026-05-04'},
+    {name:'Gräs', level:1, pollenId:'2', date:'2026-05-04'},
+    {name:'Gråbo', level:0, pollenId:'3', date:'2026-05-04'}
   ];
-  renderCurrentPollen({currentItems: sample});
-  renderPollen({forecastItems: sample});
+  const sampleCounts = {
+    '2026-05-04_1': 25,
+    '2026-05-04_2': 12,
+    '2026-05-04_3': 0,
+    '2026-05-05_1': 20,
+    '2026-05-05_2': 15,
+    '2026-05-05_3': 2,
+    '2026-05-06_1': 18,
+    '2026-05-06_2': 25,
+    '2026-05-06_3': 0
+  };
+  const sampleForecast = {
+    dates: ['mån 4 maj', 'tis 5 maj', 'ons 6 maj'],
+    rawDates: ['2026-05-04', '2026-05-05', '2026-05-06'],
+    items: [
+      {name:'Björk', day1:2, day2:2, day3:1, pollenId:'1'},
+      {name:'Gräs', day1:1, day2:2, day3:3, pollenId:'2'},
+      {name:'Gråbo', day1:0, day2:0, day3:0, pollenId:'3'}
+    ]
+  };
+  renderCurrentPollen({currentItems: sampleCurrent, counts: sampleCounts});
+  renderPollen({forecastData: sampleForecast, counts: sampleCounts});
 }
 
 function renderCurrentPollen(data){
@@ -595,15 +683,12 @@ function renderCurrentPollen(data){
   if(!out) return;
   out.innerHTML = '';
   const currentItems = data.currentItems || [];
-
-  const currentSection = document.createElement('div');
-  currentSection.className = 'pollen-section';
-  currentSection.innerHTML = '<h3>Pollenprognos</h3>';
+  const counts = data.counts || {};
 
   const pollenOrder = ['Björk', 'Gräs', 'Gråbo'];
   const filteredItems = pollenOrder.map(name => {
     const item = currentItems.find(entry => normalizePollenName(entry.name) === normalizePollenName(name));
-    return item || { name, level: 0 };
+    return item || { name, level: 0, pollenId: null, date: null };
   });
 
   if(filteredItems.length){
@@ -613,46 +698,102 @@ function renderCurrentPollen(data){
       const lvl = typeof it.level === 'number' ? it.level : 0;
       const cat = getPollenSeverityClass(lvl);
       const label = getPollenSeverityLabel(lvl);
-      row.innerHTML = `<div>${it.name}</div><div>${lvl} <span class="pollen-level ${cat}">${label}</span></div>`;
-      currentSection.appendChild(row);
+      
+      row.innerHTML = `<span>${it.name}:</span><span class="pollen-level ${cat}">${label}</span>`;
+      out.appendChild(row);
     });
   } else {
-    currentSection.innerHTML += '<div class="pollen-empty">Ingen pollenprognos tillgänglig</div>';
+    const empty = document.createElement('div');
+    empty.className = 'pollen-empty';
+    empty.textContent = 'Ingen pollenprognos tillgänglig';
+    out.appendChild(empty);
   }
-
-  out.appendChild(currentSection);
 }
 
 function renderPollen(data){
   const out = document.getElementById('pollenList');
   out.innerHTML = '';
-  const forecastItems = data.forecastItems || [];
-
-  const forecastSection = document.createElement('div');
-  forecastSection.className = 'pollen-section';
-  forecastSection.innerHTML = '<h3>3-dygnsprognos</h3>';
+  const forecastData = data.forecastData || {};
+  const forecastItems = forecastData.items || [];
+  const dateLabels = forecastData.dates || ['Dag 1', 'Dag 2', 'Dag 3'];
 
   if(forecastItems.length){
-    const pollenOrder = ['Björk', 'Gräs', 'Gråbo'];
-    const filteredItems = pollenOrder.map(name => {
-      const item = forecastItems.find(entry => normalizePollenName(entry.name) === normalizePollenName(name));
-      return item || { name, level: 0 };
+    // Create table-like layout with dates as column headers
+    const headerDiv = document.createElement('div');
+    headerDiv.style.display = 'grid';
+    headerDiv.style.gridTemplateColumns = 'minmax(80px, auto) 1fr 1fr 1fr';
+    headerDiv.style.gap = '8px';
+    headerDiv.style.marginBottom = '10px';
+    headerDiv.style.fontSize = '0.95em';
+    headerDiv.style.fontWeight = 'bold';
+    
+    // Header row
+    const emptyCell = document.createElement('div');
+    emptyCell.textContent = '';
+    headerDiv.appendChild(emptyCell);
+    
+    dateLabels.forEach(date => {
+      const dateCell = document.createElement('div');
+      dateCell.textContent = date;
+      dateCell.style.textAlign = 'center';
+      dateCell.style.padding = '4px';
+      dateCell.style.borderBottom = '2px solid #ddd';
+      headerDiv.appendChild(dateCell);
     });
-
-    filteredItems.forEach(it=>{
-      const row = document.createElement('div');
-      row.className = 'pollen-item';
-      const lvl = typeof it.level === 'number' ? it.level : (it.level || 0);
-      const cat = getPollenSeverityClass(lvl);
-      const label = getPollenSeverityLabel(lvl);
-      row.innerHTML = `<div>${it.name}</div><div>${lvl} <span class="pollen-level ${cat}">${label}</span></div>`;
-      forecastSection.appendChild(row);
+    out.appendChild(headerDiv);
+    
+    // Data rows - one per pollen type
+    forecastItems.forEach(it => {
+      const rowDiv = document.createElement('div');
+      rowDiv.style.display = 'grid';
+      rowDiv.style.gridTemplateColumns = 'minmax(80px, auto) 1fr 1fr 1fr';
+      rowDiv.style.gap = '8px';
+      rowDiv.style.alignItems = 'center';
+      rowDiv.style.marginBottom = '8px';
+      rowDiv.style.paddingBottom = '8px';
+      rowDiv.style.borderBottom = '1px solid #eee';
+      
+      // Pollen name in first cell
+      const nameCell = document.createElement('div');
+      nameCell.style.fontWeight = 'bold';
+      nameCell.textContent = it.name;
+      rowDiv.appendChild(nameCell);
+      
+      // Get labels for each day
+      const day1Label = getPollenSeverityLabel(it.day1);
+      const day2Label = getPollenSeverityLabel(it.day2);
+      const day3Label = getPollenSeverityLabel(it.day3);
+      
+      const day1Class = getPollenSeverityClass(it.day1);
+      const day2Class = getPollenSeverityClass(it.day2);
+      const day3Class = getPollenSeverityClass(it.day3);
+      
+      // Day 1
+      const day1Cell = document.createElement('div');
+      day1Cell.style.textAlign = 'center';
+      day1Cell.innerHTML = `<span class="pollen-level ${day1Class}">${day1Label}</span>`;
+      rowDiv.appendChild(day1Cell);
+      
+      // Day 2
+      const day2Cell = document.createElement('div');
+      day2Cell.style.textAlign = 'center';
+      day2Cell.innerHTML = `<span class="pollen-level ${day2Class}">${day2Label}</span>`;
+      rowDiv.appendChild(day2Cell);
+      
+      // Day 3
+      const day3Cell = document.createElement('div');
+      day3Cell.style.textAlign = 'center';
+      day3Cell.innerHTML = `<span class="pollen-level ${day3Class}">${day3Label}</span>`;
+      rowDiv.appendChild(day3Cell);
+      
+      out.appendChild(rowDiv);
     });
   } else {
-    forecastSection.innerHTML += '<div class="pollen-empty">Ingen prognos tillgänglig</div>';
+    const empty = document.createElement('div');
+    empty.className = 'pollen-empty';
+    empty.textContent = 'Ingen prognos tillgänglig';
+    out.appendChild(empty);
   }
-
-  out.appendChild(forecastSection);
 }
 
 function buildCurrentPollen(forecast, types){
@@ -662,35 +803,52 @@ function buildCurrentPollen(forecast, types){
   const daySeries = series.filter(item => item.time?.startsWith(today));
   const byPollen = new Map();
   daySeries.forEach(entry=>{
-    const prev = byPollen.get(entry.pollenId) ?? -1;
-    if(entry.level > prev) byPollen.set(entry.pollenId, entry.level);
+    const prev = byPollen.get(entry.pollenId) ?? {level: -1};
+    if(entry.level > prev.level) byPollen.set(entry.pollenId, {level: entry.level, pollenId: entry.pollenId});
   });
   return Array.from(byPollen.entries())
-    .map(([pollenId, level]) => ({
+    .map(([pollenId, data]) => ({
       name: types[pollenId]?.name || 'Okänt',
-      level,
+      level: data.level,
+      pollenId: pollenId,
+      date: today
     }))
     .sort((a,b)=>b.level-a.level);
 }
 
-function buildThreeDayForecast(forecast, types){
+function buildThreeDayForecastByType(forecast, types){
   const series = forecast.levelSeries || [];
   const dates = [...new Set(series.map(item=>item.time?.slice(0,10)).filter(Boolean))].slice(0,3);
-  return dates.map(date => {
-    const daySeries = series.filter(item => item.time?.startsWith(date));
-    const maxByPollen = new Map();
-    daySeries.forEach(entry => {
-      const prev = maxByPollen.get(entry.pollenId) ?? -1;
-      if(entry.level > prev) maxByPollen.set(entry.pollenId, entry.level);
-    });
-    const strongest = Array.from(maxByPollen.entries()).sort((a,b)=>b[1]-a[1])[0] || [null, 0];
-    const pollenName = strongest[0] ? (types[strongest[0]]?.name || 'Okänt') : 'Inga halter';
-    const level = strongest[1];
-    return {
-      name: pollenName,
-      level,
-    };
+  const pollenOrder = ['Björk', 'Gräs', 'Gråbo'];
+  
+  // Store dates globally so we can use them in render
+  const dateLabels = dates.map(d => {
+    const date = new Date(d + 'T00:00:00');
+    return new Intl.DateTimeFormat('sv-SE', { weekday:'short', day:'numeric', month:'short' }).format(date);
   });
+  
+  return {
+    dates: dateLabels,
+    rawDates: dates, // Keep raw dates for pollenkorn lookup
+    items: pollenOrder.map(pollenName => {
+      const dayValues = dates.map(date => {
+        const daySeries = series.filter(item => item.time?.startsWith(date));
+        const pollenTypeId = Object.keys(types).find(id => 
+          normalizePollenName(types[id]?.name) === normalizePollenName(pollenName)
+        );
+        const entry = daySeries.find(item => item.pollenId == pollenTypeId);
+        return {level: entry?.level ?? 0, pollenId: pollenTypeId};
+      });
+      
+      return {
+        name: pollenName,
+        day1: dayValues[0].level || 0,
+        day2: dayValues[1].level || 0,
+        day3: dayValues[2].level || 0,
+        pollenId: dayValues[0].pollenId
+      };
+    })
+  };
 }
 
 function normalizePollenName(name){
