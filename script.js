@@ -3,7 +3,7 @@
 
 const DEFAULT = { lat: 55.6050, lon: 13.0038, name: 'Malmö' };
 
-let map, radarLayer, weatherCharts = {}, overlayCanvases = {};
+let map, radarLayer, weatherCharts = {}, overlayCanvases = {}, allRadarFrames = [], radarPlayInterval = null, radarPlaying = false;
 
 function drawMidnightLines(chart, midnightIndices, chartName){
   if(!midnightIndices || midnightIndices.length === 0) return;
@@ -397,10 +397,10 @@ function renderWindChart(labels, wind, midnightIndices){
 
 async function initMap(lat, lon){
   if(!map){
-    map = L.map('map').setView([lat, lon], 8);
+    map = L.map('map').setView([lat, lon], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors'}).addTo(map);
   } else {
-    map.setView([lat, lon], 8);
+    map.setView([lat, lon], 6);
   }
 }
 
@@ -412,39 +412,94 @@ async function addRadarLayer(){
     const meta = await res.json();
     console.log('RainViewer meta:', meta);
     
-    // meta should contain host and radar.past array of frames {time, path}
-    const host = meta.host || 'https://tilecache.rainviewer.com';
-    const frames = meta.radar && Array.isArray(meta.radar.past) ? meta.radar.past : [];
-    console.log('RainViewer frames:', frames.length);
+    // Combine past and forecast frames
+    const pastFrames = meta.radar && Array.isArray(meta.radar.past) ? meta.radar.past : [];
+    const nowFrame = meta.radar && meta.radar.now ? [meta.radar.now] : [];
+    const forecastFrames = meta.radar && Array.isArray(meta.radar.nowcast) ? meta.radar.nowcast : [];
     
-    if(!frames.length) {
-      console.warn('No RainViewer frames available');
+    allRadarFrames = [...pastFrames, ...nowFrame, ...forecastFrames];
+    console.log('Total radar frames:', allRadarFrames.length);
+    
+    if(!allRadarFrames.length) {
+      console.warn('No radar frames available');
       return;
     }
     
-    const frame = frames[frames.length-1];
-    console.log('Latest frame:', frame);
+    const host = meta.host || 'https://tilecache.rainviewer.com';
     
-    const path = frame.path || `/v2/radar/${frame.time}`;
-    const size = 256; 
-    const color = 2; 
-    const options = '1_1';
-    const url = `${host}${path}/${size}/{z}/{x}/{y}/${color}/${options}.png`;
-    console.log('RainViewer tile URL:', url);
+    // Set up slider if we have multiple frames
+    if(allRadarFrames.length > 1){
+      const slider = document.getElementById('radarSlider');
+      const timeDisplay = document.getElementById('radarTime');
+      const playBtn = document.getElementById('radarPlayBtn');
+      const controls = document.getElementById('radarControls');
+      
+      slider.max = allRadarFrames.length - 1;
+      slider.value = allRadarFrames.length - 1; // Start at latest
+      controls.style.display = 'block';
+      
+      const updateFrame = (idx) => {
+        const frame = allRadarFrames[idx];
+        updateRadarFrame(frame, host);
+        
+        // Display time
+        const date = new Date(frame.time * 1000);
+        const isForecast = idx >= pastFrames.length + nowFrame.length;
+        const label = isForecast ? 'Prognos' : 'Historik';
+        timeDisplay.textContent = `${label}: ${date.toLocaleString('sv-SE')}`;
+      };
+      
+      slider.addEventListener('input', (e) => {
+        updateFrame(parseInt(e.target.value));
+        // Stop playback if user manually moves slider
+        if(radarPlaying) toggleRadarPlayback();
+      });
+      
+      playBtn.addEventListener('click', toggleRadarPlayback);
+      
+      function toggleRadarPlayback(){
+        if(radarPlaying){
+          radarPlaying = false;
+          clearInterval(radarPlayInterval);
+          playBtn.textContent = '▶ Spela';
+        } else {
+          radarPlaying = true;
+          playBtn.textContent = '⏸ Pausa';
+          let idx = parseInt(slider.value);
+          radarPlayInterval = setInterval(() => {
+            idx++;
+            if(idx > slider.max) idx = 0; // Loop
+            slider.value = idx;
+            updateFrame(idx);
+          }, 500); // 500ms per frame
+        }
+      }
+    }
     
-    if(radarLayer) map.removeLayer(radarLayer);
-    radarLayer = L.tileLayer(url, {
-      opacity:0.6, 
-      attribution:'RainViewer', 
-      tileSize:256, 
-      maxNativeZoom:16, 
-      maxZoom:18
-    }).addTo(map);
-    
+    // Show latest frame immediately
+    const latestFrame = allRadarFrames[allRadarFrames.length - 1];
+    updateRadarFrame(latestFrame, host);
     console.log('RainViewer layer added successfully');
   }catch(e){
     console.error('RainViewer error:', e);
   }
+}
+
+function updateRadarFrame(frame, host){
+  const path = frame.path || `/v2/radar/${frame.time}`;
+  const size = 256; 
+  const color = 2; 
+  const options = '1_1';
+  const url = `${host}${path}/${size}/{z}/{x}/{y}/${color}/${options}.png`;
+  
+  if(radarLayer) map.removeLayer(radarLayer);
+  radarLayer = L.tileLayer(url, {
+    opacity:0.6, 
+    attribution:'RainViewer', 
+    tileSize:256, 
+    maxNativeZoom:16, 
+    maxZoom:18
+  }).addTo(map);
 }
 
 // Minimal geocoding using Nominatim

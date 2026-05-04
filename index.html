@@ -49,8 +49,11 @@
       <div class="card map" id="mapCard">
         <h2>Regnradar</h2>
         <div id="radarControls" style="margin-bottom: 10px; display: none;">
-          <label>Regnanimation (se hur regnet rör sig): </label><br>
-          <input type="range" id="radarSlider" min="0" max="100" value="100" style="width: 100%; margin-top: 8px;">
+          <div style="margin-bottom: 8px;">
+            <button id="radarPlayBtn" style="padding: 6px 12px; font-size: 0.95em; cursor: pointer;">▶ Spela</button>
+            <label style="margin-left: 12px;">Regnanimation (se hur regnet rör sig): </label>
+          </div>
+          <input type="range" id="radarSlider" min="0" max="100" value="100" style="width: 100%;">
           <div style="font-size: 0.9em; color: #666; margin-top: 4px;">
             <span id="radarTime">—</span>
           </div>
