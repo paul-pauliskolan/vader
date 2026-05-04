@@ -5,8 +5,80 @@ const DEFAULT = { lat: 55.6050, lon: 13.0038, name: 'Malmö' };
 
 let map, radarLayer, weatherCharts = {};
 
+function drawMidnightLines(chart, midnightIndices){
+  if(!midnightIndices || midnightIndices.length === 0) return;
+  console.log('drawMidnightLines called with indices:', midnightIndices);
+  
+  const canvas = chart.canvas;
+  const ctx = canvas.getContext('2d');
+  const xScale = chart.scales.x;
+  const yScale = chart.scales.y;
+  
+  if(!xScale || !yScale) {
+    console.log('No scales available');
+    return;
+  }
+  
+  ctx.save();
+  ctx.strokeStyle = '#FF0000';
+  ctx.lineWidth = 3;
+  ctx.globalAlpha = 0.8;
+  
+  midnightIndices.forEach(idx => {
+    const xPos = xScale.getPixelForValue(idx);
+    console.log('Drawing line at index', idx, 'xPos:', xPos);
+    ctx.beginPath();
+    ctx.moveTo(xPos, chart.chartArea.top);
+    ctx.lineTo(xPos, chart.chartArea.bottom);
+    ctx.stroke();
+  });
+  
+  ctx.restore();
+}
+
+// Chart.js plugin for vertical lines at midnight
+const verticalMidnightPlugin = {
+  id: 'verticalMidnightLines',
+  afterRender(chart){
+    const opts = chart.options.plugins?.verticalMidnightLines || {};
+    const midnightIndices = opts.indices || [];
+    console.log('afterRender: midnightIndices=', midnightIndices);
+    if(!midnightIndices || midnightIndices.length === 0) return;
+    
+    const ctx = chart.ctx;
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    if(!xScale || !yScale) {
+      console.log('No scales');
+      return;
+    }
+    
+    console.log('xScale min/max:', xScale.min, xScale.max);
+    console.log('Chart area:', chart.chartArea);
+    
+    ctx.save();
+    ctx.strokeStyle = '#FF0000';
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.8;
+    
+    midnightIndices.forEach(idx => {
+      // Get pixel position using the index as a data value
+      const xPos = xScale.getPixelForValue(idx);
+      console.log('Midnight at index', idx, '-> xPos:', xPos);
+      
+      ctx.beginPath();
+      ctx.moveTo(xPos, chart.chartArea.top);
+      ctx.lineTo(xPos, chart.chartArea.bottom);
+      ctx.stroke();
+    });
+    
+    ctx.restore();
+  }
+};
+
 if (typeof Chart !== 'undefined' && Chart.registerables) {
   Chart.register(...Chart.registerables);
+  Chart.register(verticalMidnightPlugin);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -172,20 +244,44 @@ function renderChart(data){
   const maxPoints = 168; // up to 7 days hourly
   const rawTimes = data.hourly?.time || [];
   const sliceLen = Math.min(rawTimes.length, maxPoints);
-  const times = rawTimes.slice(0, sliceLen).map(t=>t.replace('T',' '));
+  const slicedRawTimes = rawTimes.slice(0, sliceLen);
+  const times = buildDateLabels(slicedRawTimes);
+  const midnightIndices = getMidnightIndices(slicedRawTimes);
   const temps = (data.hourly?.temperature_2m || []).slice(0, sliceLen);
   const prec = (data.hourly?.precipitation || []).slice(0, sliceLen);
   const wind = (data.hourly?.windspeed_10m || []).slice(0, sliceLen);
 
   console.log('renderChart: sliceLen', sliceLen);
   console.log('renderChart samples temps[0]', temps[0], 'prec[0]', prec[0], 'wind[0]', wind[0]);
+  console.log('Midnight indices found:', midnightIndices);
 
-  renderTemperatureChart(times, temps);
-  renderPrecipitationChart(times, prec);
-  renderWindChart(times, wind);
+  renderTemperatureChart(times, temps, midnightIndices);
+  renderPrecipitationChart(times, prec, midnightIndices);
+  renderWindChart(times, wind, midnightIndices);
 }
 
-function renderTemperatureChart(labels, temps){
+function getMidnightIndices(times){
+  const indices = [];
+  times.forEach((time, idx) => {
+    const hour = time.slice(11, 13);
+    if(hour === '00') indices.push(idx);
+  });
+  return indices;
+}
+
+function buildDateLabels(times){
+  let lastDate = '';
+  return times.map(time => {
+    const date = time.slice(0, 10);
+    if(date !== lastDate){
+      lastDate = date;
+      return formatDateSv(date);
+    }
+    return '';
+  });
+}
+
+function renderTemperatureChart(labels, temps, midnightIndices){
   const canvas = document.getElementById('tempChart');
   if(!canvas) return;
   canvas.width = canvas.clientWidth || canvas.width || 600;
@@ -211,15 +307,21 @@ function renderTemperatureChart(labels, temps){
     },
     options:{
       interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false}},
-      scales:{y:{type:'linear',title:{display:true,text:'°C'}}},
+      plugins:{
+        legend:{display:false}
+      },
+      scales:{
+        x:{position:'top',grid:{display:false},ticks:{maxRotation:0,minRotation:0,autoSkip:false}},
+        y:{type:'linear',title:{display:true,text:'°C'}}
+      },
       responsive:false,
       maintainAspectRatio:false
     }
   });
+  setTimeout(() => drawMidnightLines(weatherCharts.temp, midnightIndices), 50);
 }
 
-function renderPrecipitationChart(labels, prec){
+function renderPrecipitationChart(labels, prec, midnightIndices){
   const canvas = document.getElementById('precipChart');
   if(!canvas) return;
   canvas.width = canvas.clientWidth || canvas.width || 600;
@@ -238,15 +340,21 @@ function renderPrecipitationChart(labels, prec){
     },
     options:{
       interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false}},
-      scales:{y:{type:'linear',beginAtZero:true,title:{display:true,text:'mm'}}},
+      plugins:{
+        legend:{display:false},
+        verticalMidnightLines:{ indices: midnightIndices || [] }
+      },
+      scales:{
+        x:{position:'top',grid:{display:false},ticks:{maxRotation:0,minRotation:0,autoSkip:false}},
+        y:{type:'linear',beginAtZero:true,title:{display:true,text:'mm'}}
+      },
       responsive:false,
       maintainAspectRatio:false
     }
   });
 }
 
-function renderWindChart(labels, wind){
+function renderWindChart(labels, wind, midnightIndices){
   const canvas = document.getElementById('windChart');
   if(!canvas) return;
   canvas.width = canvas.clientWidth || canvas.width || 600;
@@ -265,8 +373,14 @@ function renderWindChart(labels, wind){
     },
     options:{
       interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false}},
-      scales:{y:{type:'linear',title:{display:true,text:'m/s'}}},
+      plugins:{
+        legend:{display:false},
+        verticalMidnightLines:{ indices: midnightIndices || [] }
+      },
+      scales:{
+        x:{position:'top',grid:{display:false},ticks:{maxRotation:0,minRotation:0,autoSkip:false}},
+        y:{type:'linear',title:{display:true,text:'m/s'}}
+      },
       responsive:false,
       maintainAspectRatio:false
     }
