@@ -539,12 +539,14 @@ async function addRadarLayer(){
     const meta = await res.json();
     console.log('RainViewer meta:', meta);
     
-    // Combine past and forecast frames
+    // Combine recent history + current + forecast so one animation shows transition into prognosis
     const pastFrames = meta.radar && Array.isArray(meta.radar.past) ? meta.radar.past : [];
-    const nowFrame = meta.radar && meta.radar.now ? [meta.radar.now] : [];
+    const nowRaw = meta.radar ? meta.radar.now : null;
+    const nowFrames = Array.isArray(nowRaw) ? nowRaw : (nowRaw ? [nowRaw] : []);
     const forecastFrames = meta.radar && Array.isArray(meta.radar.nowcast) ? meta.radar.nowcast : [];
-    
-    allRadarFrames = [...pastFrames, ...nowFrame, ...forecastFrames];
+    const recentPastFrames = pastFrames.slice(-6); // keep recent history only (~1-2h)
+
+    allRadarFrames = [...recentPastFrames, ...nowFrames, ...forecastFrames];
     console.log('Total radar frames:', allRadarFrames.length);
     
     if(!allRadarFrames.length) {
@@ -561,8 +563,10 @@ async function addRadarLayer(){
       const playBtn = document.getElementById('radarPlayBtn');
       const controls = document.getElementById('radarControls');
       
+      const forecastStartIdx = recentPastFrames.length + nowFrames.length;
+
       slider.max = allRadarFrames.length - 1;
-      slider.value = allRadarFrames.length - 1; // Start at latest
+      slider.value = Math.min(forecastStartIdx, allRadarFrames.length - 1); // Start where forecast begins
       controls.style.display = 'block';
       
       const updateFrame = (idx) => {
@@ -571,18 +575,19 @@ async function addRadarLayer(){
         
         // Display time
         const date = new Date(frame.time * 1000);
-        const isForecast = idx >= pastFrames.length + nowFrame.length;
+        const isForecast = idx >= forecastStartIdx;
         const label = isForecast ? 'Prognos' : 'Historik';
         timeDisplay.textContent = `${label}: ${date.toLocaleString('sv-SE')}`;
       };
-      
-      slider.addEventListener('input', (e) => {
+
+      // Avoid duplicated listeners when reloading layers
+      slider.oninput = (e) => {
         updateFrame(parseInt(e.target.value));
         // Stop playback if user manually moves slider
         if(radarPlaying) toggleRadarPlayback();
-      });
-      
-      playBtn.addEventListener('click', toggleRadarPlayback);
+      };
+
+      playBtn.onclick = toggleRadarPlayback;
       
       function toggleRadarPlayback(){
         if(radarPlaying){
@@ -601,11 +606,18 @@ async function addRadarLayer(){
           }, 500); // 500ms per frame
         }
       }
+
+      // Show selected start frame immediately in UI and map
+      updateFrame(parseInt(slider.value));
+      if(!forecastFrames.length){
+        timeDisplay.textContent += ' (ingen prognos tillgänglig just nu)';
+      }
     }
-    
-    // Show latest frame immediately
-    const latestFrame = allRadarFrames[allRadarFrames.length - 1];
-    updateRadarFrame(latestFrame, host);
+
+    // Fallback when controls are not shown
+    if(allRadarFrames.length <= 1){
+      updateRadarFrame(allRadarFrames[0], host);
+    }
     console.log('RainViewer layer added successfully');
   }catch(e){
     console.error('RainViewer error:', e);
