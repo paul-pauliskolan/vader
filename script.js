@@ -9,31 +9,22 @@ let resizeChartTimer = null;
 
 function drawMidnightLines(chart, midnightIndices, chartName){
   if(!midnightIndices || midnightIndices.length === 0) return;
-  console.log(`drawMidnightLines for ${chartName}:`, midnightIndices);
-  
   const mainCanvas = chart.canvas;
   const mainCtx = mainCanvas.getContext('2d');
   const xScale = chart.scales.x;
   const yScale = chart.scales.y;
   
   if(!xScale || !yScale) {
-    console.log('No scales available');
     return;
   }
-  
-  console.log(`${chartName} chartArea:`, chart.chartArea);
-  console.log(`${chartName} canvas size:`, mainCanvas.width, 'x', mainCanvas.height);
-  
-  // Use the main canvas directly and draw on top
+
   mainCtx.save();
-  mainCtx.strokeStyle = '#FF0000';
-  mainCtx.lineWidth = 3;
-  mainCtx.globalAlpha = 1.0;
-  mainCtx.globalCompositeOperation = 'source-over';
+  mainCtx.strokeStyle = 'rgba(148, 163, 184, 0.85)';
+  mainCtx.lineWidth = 1;
+  mainCtx.setLineDash([4, 4]);
   
   midnightIndices.forEach(idx => {
     const xPos = xScale.getPixelForValue(idx);
-    console.log(`${chartName}: index ${idx} -> xPos: ${xPos}`);
     mainCtx.beginPath();
     mainCtx.moveTo(xPos, chart.chartArea.top);
     mainCtx.lineTo(xPos, chart.chartArea.bottom);
@@ -41,6 +32,58 @@ function drawMidnightLines(chart, midnightIndices, chartName){
   });
   
   mainCtx.restore();
+}
+
+function ensureOverlayCanvas(chartCanvas, overlayId){
+  const parent = chartCanvas.parentElement;
+  if(!parent) return null;
+
+  parent.style.position = 'relative';
+
+  let overlay = document.getElementById(overlayId);
+  if(!overlay){
+    overlay = document.createElement('canvas');
+    overlay.id = overlayId;
+    overlay.style.position = 'absolute';
+    overlay.style.inset = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.pointerEvents = 'none';
+    overlay.style.zIndex = '2';
+    parent.appendChild(overlay);
+  }
+
+  return overlay;
+}
+
+function drawMidnightOverlay(chart, midnightIndices, overlayId){
+  if(!midnightIndices || midnightIndices.length === 0) return;
+  const overlay = document.getElementById(overlayId);
+  if(!overlay) return;
+
+  overlay.width = chart.canvas.width;
+  overlay.height = chart.canvas.height;
+
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  const xScale = chart.scales.x;
+  if(!xScale) return;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(71, 85, 105, 0.95)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 4]);
+
+  midnightIndices.forEach(idx => {
+    const xPos = xScale.getPixelForValue(idx);
+    ctx.beginPath();
+    ctx.moveTo(xPos, chart.chartArea.top);
+    ctx.lineTo(xPos, chart.chartArea.bottom);
+    ctx.stroke();
+  });
+
+  ctx.restore();
 }
 
 function drawCurrentHourLine(chart, currentHourIdx, chartName){
@@ -79,32 +122,25 @@ function drawCurrentHourLine(chart, currentHourIdx, chartName){
 // Chart.js plugin for vertical lines at midnight
 const verticalMidnightPlugin = {
   id: 'verticalMidnightLines',
-  afterRender(chart){
+  afterDatasetsDraw(chart){
     const opts = chart.options.plugins?.verticalMidnightLines || {};
     const midnightIndices = opts.indices || [];
-    console.log('afterRender: midnightIndices=', midnightIndices);
     if(!midnightIndices || midnightIndices.length === 0) return;
     
     const ctx = chart.ctx;
     const xScale = chart.scales.x;
     const yScale = chart.scales.y;
     if(!xScale || !yScale) {
-      console.log('No scales');
       return;
     }
-    
-    console.log('xScale min/max:', xScale.min, xScale.max);
-    console.log('Chart area:', chart.chartArea);
-    
+
     ctx.save();
-    ctx.strokeStyle = '#FF0000';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 0.8;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.85)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
     
     midnightIndices.forEach(idx => {
-      // Get pixel position using the index as a data value
       const xPos = xScale.getPixelForValue(idx);
-      console.log('Midnight at index', idx, '-> xPos:', xPos);
       
       ctx.beginPath();
       ctx.moveTo(xPos, chart.chartArea.top);
@@ -291,6 +327,13 @@ function formatDateSvCompact(dateStr){
   return new Intl.DateTimeFormat('sv-SE', { day:'numeric', month:'numeric' }).format(date);
 }
 
+function getLocalDateString(date = new Date()){
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function shouldUseCompactChartLabels(){
   return window.innerWidth < 720;
 }
@@ -302,7 +345,7 @@ function renderChart(data){
   // Find current hour index
   const now = new Date();
   const nowHour = now.getHours();
-  const nowDate = now.toISOString().split('T')[0];
+  const nowDate = getLocalDateString(now);
   const nowTimeString = `${nowDate}T${String(nowHour).padStart(2,'0')}:00`;
   
   let startIdx = 0;
@@ -346,13 +389,10 @@ function getMidnightIndices(times){
 
 function buildDateLabels(times){
   const compact = shouldUseCompactChartLabels();
-  let lastDate = '';
   return times.map(time => {
     const date = time.slice(0, 10);
-    if(date !== lastDate){
-      lastDate = date;
-      return compact ? formatDateSvCompact(date) : formatDateSv(date);
-    }
+    const hour = time.slice(11, 13);
+    if(hour === '12') return compact ? formatDateSvCompact(date) : formatDateSv(date);
     return '';
   });
 }
@@ -374,6 +414,7 @@ function renderTemperatureChart(labels, temps, midnightIndices, currentHourIdx){
 
   const lower = temps.map(v=> (v==null?null:v-2));
   const upper = temps.map(v=> (v==null?null:v+2));
+  ensureOverlayCanvas(canvas, 'tempChartOverlay');
 
   weatherCharts.temp = new Chart(ctx, {
     type: 'line',
@@ -400,7 +441,7 @@ function renderTemperatureChart(labels, temps, midnightIndices, currentHourIdx){
     }
   });
   setTimeout(() => {
-    drawMidnightLines(weatherCharts.temp, midnightIndices, 'Temp');
+    drawMidnightOverlay(weatherCharts.temp, midnightIndices, 'tempChartOverlay');
     if(currentHourIdx >= 0) drawCurrentHourLine(weatherCharts.temp, currentHourIdx, 'Temp');
   }, 100);
 }
@@ -415,6 +456,7 @@ function renderPrecipitationChart(labels, prec, midnightIndices, currentHourIdx)
   canvas.style.height = '140px';
   const ctx = canvas.getContext('2d');
   if(weatherCharts.precip) weatherCharts.precip.destroy();
+  ensureOverlayCanvas(canvas, 'precipChartOverlay');
 
   weatherCharts.precip = new Chart(ctx, {
     type: 'bar',
@@ -437,7 +479,7 @@ function renderPrecipitationChart(labels, prec, midnightIndices, currentHourIdx)
     }
   });
   setTimeout(() => {
-    drawMidnightLines(weatherCharts.precip, midnightIndices, 'Precip');
+    drawMidnightOverlay(weatherCharts.precip, midnightIndices, 'precipChartOverlay');
     if(currentHourIdx >= 0) drawCurrentHourLine(weatherCharts.precip, currentHourIdx, 'Precip');
   }, 100);
 }
@@ -452,6 +494,7 @@ function renderWindChart(labels, wind, midnightIndices, currentHourIdx){
   canvas.style.height = '140px';
   const ctx = canvas.getContext('2d');
   if(weatherCharts.wind) weatherCharts.wind.destroy();
+  ensureOverlayCanvas(canvas, 'windChartOverlay');
 
   weatherCharts.wind = new Chart(ctx, {
     type: 'line',
@@ -474,7 +517,7 @@ function renderWindChart(labels, wind, midnightIndices, currentHourIdx){
     }
   });
   setTimeout(() => {
-    drawMidnightLines(weatherCharts.wind, midnightIndices, 'Wind');
+    drawMidnightOverlay(weatherCharts.wind, midnightIndices, 'windChartOverlay');
     if(currentHourIdx >= 0) drawCurrentHourLine(weatherCharts.wind, currentHourIdx, 'Wind');
   }, 100);
 }
