@@ -412,7 +412,7 @@ function renderCurrentPollen(data){
       const lvl = typeof it.level === 'number' ? it.level : 0;
       const cat = getPollenSeverityClass(lvl);
       const label = getPollenSeverityLabel(lvl);
-      row.innerHTML = `<div>${it.name}</div><div><span class="pollen-level ${cat}">${label}</span></div>`;
+      row.innerHTML = `<div>${it.name}</div><div>${lvl} <span class="pollen-level ${cat}">${label}</span></div>`;
       currentSection.appendChild(row);
     });
   } else {
@@ -444,7 +444,7 @@ function renderPollen(data){
       const lvl = typeof it.level === 'number' ? it.level : (it.level || 0);
       const cat = getPollenSeverityClass(lvl);
       const label = getPollenSeverityLabel(lvl);
-      row.innerHTML = `<div>${it.name}</div><div><span class="pollen-level ${cat}">${label}</span></div>`;
+      row.innerHTML = `<div>${it.name}</div><div>${lvl} <span class="pollen-level ${cat}">${label}</span></div>`;
       forecastSection.appendChild(row);
     });
   } else {
