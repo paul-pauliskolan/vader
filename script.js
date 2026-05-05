@@ -70,16 +70,19 @@ function drawMidnightOverlay(chart, midnightIndices, overlayId){
   const xScale = chart.scales.x;
   if(!xScale) return;
 
+  // Account for device pixel ratio
+  const dpr = window.devicePixelRatio || 1;
+
   ctx.save();
   ctx.strokeStyle = 'rgba(71, 85, 105, 0.95)';
   ctx.lineWidth = 1.5;
   ctx.setLineDash([5, 4]);
 
   midnightIndices.forEach(idx => {
-    const xPos = xScale.getPixelForValue(idx);
+    const xPos = xScale.getPixelForValue(idx) * dpr;
     ctx.beginPath();
-    ctx.moveTo(xPos, chart.chartArea.top);
-    ctx.lineTo(xPos, chart.chartArea.bottom);
+    ctx.moveTo(xPos, chart.chartArea.top * dpr);
+    ctx.lineTo(xPos, chart.chartArea.bottom * dpr);
     ctx.stroke();
   });
 
