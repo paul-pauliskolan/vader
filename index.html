@@ -9,7 +9,11 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Väderdashboard</h1>
+    <h1 id="titleText">Väderdashboard</h1>
+    <div class="header-weather" id="headerWeather" style="display: none;">
+      <div id="headerWeatherContent"></div>
+      <div id="headerPollenContent"></div>
+    </div>
     <div class="controls">
       <input id="searchInput" placeholder="Sök stad (valfritt)" />
       <button id="searchBtn">Sök</button>

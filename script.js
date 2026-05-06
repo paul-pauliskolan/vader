@@ -160,11 +160,27 @@ if (typeof Chart !== 'undefined' && Chart.registerables) {
   Chart.register(verticalMidnightPlugin);
 }
 
+function updateHeaderWeatherVisibility(){
+  const headerWeather = document.getElementById('headerWeather');
+  const titleText = document.getElementById('titleText');
+  const isMobile = window.innerWidth <= 600;
+  
+  if(isMobile){
+    headerWeather.style.display = 'block';
+    titleText.style.display = 'none';
+  } else {
+    headerWeather.style.display = 'none';
+    titleText.style.display = 'block';
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initUI();
+  updateHeaderWeatherVisibility();
   initMap(DEFAULT.lat, DEFAULT.lon);
   loadAll(DEFAULT.lat, DEFAULT.lon);
   window.addEventListener('resize', () => {
+    updateHeaderWeatherVisibility();
     if(!latestWeatherData) return;
     clearTimeout(resizeChartTimer);
     resizeChartTimer = setTimeout(() => renderChart(latestWeatherData), 150);
@@ -245,12 +261,18 @@ function renderCurrent(data){
   const uvValue = getDailyUV(data);
   const uvLabel = getUVLabel(uvValue);
 
-  container.innerHTML = `
+  const html = `
     <div class="current-temp"><strong>${icon} ${cur.temperature}°C</strong></div>
     <div>Tillstånd: ${condition}</div>
     <div>Vind: ${windMs} m/s, ${windDir}</div>
     <div>UV: ${uvValue ?? '—'} (${uvLabel})</div>
   `;
+  
+  container.innerHTML = html;
+  
+  // Also update header weather for mobile
+  const headerWeather = document.getElementById('headerWeatherContent');
+  if(headerWeather) headerWeather.innerHTML = html;
 }
 
 function renderForecast(data){
@@ -784,6 +806,12 @@ function renderCurrentPollen(data){
     empty.className = 'pollen-empty';
     empty.textContent = 'Ingen pollenprognos tillgänglig';
     out.appendChild(empty);
+  }
+  
+  // Also update header pollen for mobile
+  const headerPollen = document.getElementById('headerPollenContent');
+  if(headerPollen) {
+    headerPollen.innerHTML = out.innerHTML;
   }
 }
 
